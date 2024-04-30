@@ -1,0 +1,11 @@
+<DeviceConfig>
+	<Device>
+		<Name>Device 1</Name>
+	</Device>
+	<Device>
+		<Name>Device 3</Name>
+	</Device>
+	<Device>
+		<Name>Device 4</Name>
+	</Device>
+</DeviceConfig>
