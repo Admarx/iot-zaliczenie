@@ -1,6 +1,8 @@
-﻿using Microsoft.Azure.Devices.Client;
+﻿using Microsoft.Azure.Amqp.Framing;
+using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
 
@@ -18,32 +20,46 @@ namespace OpcAgent.Device
 
         #region Sending Messages
 
-        public async Task SendMessages(List<String> readNodeValues, int delay)
+        public async Task SendMessages(List<String> readNodeValues, bool isError)
         {
             if (readNodeValues.Count == 14)
             {
-                var data = new
+                string dataString = string.Empty;
+                if (isError)
                 {
-                    productionStatus = readNodeValues[1],
-                    workorderID = readNodeValues[5],
-                    goodCount = readNodeValues[9],
-                    badCount = readNodeValues[11],
-                    temperature = readNodeValues[7],
-                };
-
-                var dataString = JsonConvert.SerializeObject(data);
+                    var data = new
+                    {
+                        productionStatus = readNodeValues[1],
+                        workorderID = readNodeValues[5],
+                        goodCount = readNodeValues[9],
+                        badCount = readNodeValues[11],
+                        temperature = readNodeValues[7],
+                        deviceErrors = readNodeValues[13],
+                    };
+                    dataString = JsonConvert.SerializeObject(data);
+                }
+                else
+                {
+                    var data = new
+                    {
+                        productionStatus = readNodeValues[1],
+                        workorderID = readNodeValues[5],
+                        goodCount = readNodeValues[9],
+                        badCount = readNodeValues[11],
+                        temperature = readNodeValues[7],
+                    };
+                    dataString = JsonConvert.SerializeObject(data);
+                }
 
                 Message eventMessage = new Message(Encoding.UTF8.GetBytes(dataString));
                 eventMessage.ContentType = MediaTypeNames.Application.Json;
                 eventMessage.ContentEncoding = "utf-8";
-                if (previousDeviceState != readNodeValues[13])
-                {
-                    eventMessage.Properties.Add("deviceErrors", readNodeValues[13]);
-                    previousDeviceState = readNodeValues[13];
-                }
-                //Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {count}, Data: [{dataString}]");
 
+                //eventMessage.Properties.Add("deviceErrors", readNodeValues[13]);
+                
+                //Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {count}, Data: [{dataString}]");
                 await client.SendEventAsync(eventMessage);
+                
             }
             //await Task.Delay(delay);
         }
@@ -106,7 +122,6 @@ namespace OpcAgent.Device
         public async Task UpdateTwinAsync()
         {
             var twin = await client.GetTwinAsync();
-
             Console.WriteLine($"\nInitial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
             Console.WriteLine();
 
@@ -114,6 +129,36 @@ namespace OpcAgent.Device
             reportedProperties["DateTimeLastAppLaunch"] = DateTime.Now;
 
             await client.UpdateReportedPropertiesAsync(reportedProperties);
+        }
+
+        public async Task UpdateTwinAsyncDeviceErrors(string deviceName, List<string> errorValues)
+        {
+            if (errorValues.Count == 14)
+            {
+                var twin = await client.GetTwinAsync();
+                string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
+                TwinCollection twinCollectionJSON = new TwinCollection(json);
+                JObject jobjectJSON = JObject.Parse(json);
+
+                deviceName = deviceName.Replace(" ", "");
+                string propertyName = deviceName + "_error_state";
+                string previousValue = (string)jobjectJSON["properties"]["reported"][propertyName];
+                if (previousValue != null && previousValue != errorValues[13])
+                {
+                    Console.WriteLine($"\n{deviceName} device error value set to {errorValues[13]}\n");
+                    Console.WriteLine();
+
+                    var reportedProperties = new TwinCollection();
+                    reportedProperties[propertyName] = errorValues[13];
+
+                    await client.UpdateReportedPropertiesAsync(reportedProperties);
+                    await SendMessages(errorValues, true);
+                }
+                else
+                {
+                    await SendMessages(errorValues, false);
+                }
+            }
         }
 
         private async Task OnDesiredPropertyChanged(TwinCollection desiredProperties, object userContext)

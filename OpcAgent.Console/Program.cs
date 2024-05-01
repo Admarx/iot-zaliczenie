@@ -8,6 +8,7 @@ using Microsoft.Azure.Devices.Client;
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
 int whichExecution = 0;
 List<String> deviceNames = new List<string>();
+List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
 try
 {
@@ -33,21 +34,18 @@ await device.UpdateTwinAsync();
 using (var client = new OpcClient("opc.tcp://localhost:4840/"))
 {
     client.Connect();
-    
 
-    while (true)
+    while (config != null)
     {
         List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
-        if (config != null)
+        #region reading nodes
+        foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
         {
-            #region reading nodes
-            foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
+            string name = iterator.SelectSingleNode("Name").InnerText;
+            deviceNames.Add(name);
+            if (!string.IsNullOrEmpty(name))
             {
-                string name = iterator.SelectSingleNode("Name").InnerText;
-                deviceNames.Add(name);
-                if (!string.IsNullOrEmpty(name))
-                {
-                    OpcReadNode[] commands = new OpcReadNode[] {
+                OpcReadNode[] commands = new OpcReadNode[] {
         new OpcReadNode("ns=2;s="+name+"/ProductionStatus", OpcAttribute.DisplayName),
         new OpcReadNode("ns=2;s="+name+"/ProductionStatus"),
         new OpcReadNode("ns=2;s="+name+"/ProductionRate", OpcAttribute.DisplayName),
@@ -64,56 +62,56 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
         new OpcReadNode("ns=2;s="+name+"/DeviceError"),
         };
 
-                    commandList.Add(commands);
-                }
+                commandList.Add(commands);
             }
-            #endregion
-
-            #region printing - temporary
-            whichExecution = 0;
-            foreach (OpcReadNode[] command in commandList)
-            {
-                IEnumerable<OpcValue> job = client.ReadNodes(command);
-                Console.WriteLine("Printing information about: " + deviceNames[whichExecution]);
-                whichExecution++;
-
-                if (job.All(x => x.Value == null))
-                {
-                    Console.WriteLine("No information found about this device. Please check the configuration file and/or the device itself.");
-                }
-                else
-                {
-                    foreach (var item in job)
-                    {
-                        var testvalue = item.Value;
-                        Console.WriteLine(item.Value);
-                    }
-                }
-                Console.Write("\n");
-            }
-            #endregion
-
-            #region sending test
-            whichExecution = 0;
-
-            foreach (OpcReadNode[] command in commandList)
-            {
-                IEnumerable<OpcValue> job = client.ReadNodes(command);
-                List<String> itemValues = new List<string>();
-                whichExecution++;
-
-                if (!job.All(x => x.Value == null))
-                {
-                    foreach (var item in job)
-                    {
-                        itemValues.Add(item.Value.ToString());
-                    }
-                }
-                await device.SendMessages(itemValues, 15000);
-            }
-            await Task.Delay(15000);
-            #endregion
         }
+        #endregion
+
+        #region printing - temporary
+        whichExecution = 0;
+        foreach (OpcReadNode[] command in commandList)
+        {
+            IEnumerable<OpcValue> job = client.ReadNodes(command);
+            Console.WriteLine("Printing information about: " + deviceNames[whichExecution]);
+            whichExecution++;
+
+            if (job.All(x => x.Value == null))
+            {
+                Console.WriteLine("No information found about this device. Please check the configuration file and/or the device itself.");
+            }
+            else
+            {
+                foreach (var item in job)
+                {
+                    var testvalue = item.Value;
+                    Console.WriteLine(item.Value);
+                }
+            }
+            Console.Write("\n");
+        }
+        #endregion
+
+        #region sending test
+        whichExecution = 0;
+
+        foreach (OpcReadNode[] command in commandList)
+        {
+            IEnumerable<OpcValue> job = client.ReadNodes(command);
+            List<String> itemValues = new List<string>();
+            
+
+            if (!job.All(x => x.Value == null))
+            {
+                foreach (var item in job)
+                {
+                    itemValues.Add(item.Value.ToString());
+                }
+            }
+            await device.UpdateTwinAsyncDeviceErrors(deviceNames[whichExecution], itemValues); 
+            whichExecution++;
+        }
+        await Task.Delay(15000);
+        #endregion
     }
 }
 #endregion
