@@ -14,15 +14,17 @@ namespace OpcAgent.Device
     public class VirtualDevice
     {
         private readonly DeviceClient client;
+        private OpcClient opcClient;
 
-        public VirtualDevice(DeviceClient deviceClient)
+        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient)
         {
             this.client = deviceClient;
+            this.opcClient = opcClient;
         }
 
         #region Sending Messages
 
-        public async Task SendMessages(List<String> readNodeValues, bool isError)
+        public async Task SendMessages(List<String> readNodeValues, bool isError, string deviceName)
         {
             if (readNodeValues.Count == 14)
             {
@@ -31,6 +33,7 @@ namespace OpcAgent.Device
                 {
                     var data = new
                     {
+                        deviceName = deviceName,
                         productionStatus = readNodeValues[1],
                         workorderID = readNodeValues[5],
                         goodCount = readNodeValues[9],
@@ -44,6 +47,7 @@ namespace OpcAgent.Device
                 {
                     var data = new
                     {
+                        deviceName = deviceName,
                         productionStatus = readNodeValues[1],
                         workorderID = readNodeValues[5],
                         goodCount = readNodeValues[9],
@@ -97,23 +101,32 @@ namespace OpcAgent.Device
 
         #region Direct Methods
 
-        //private async Task<MethodResponse> SendMessagesHandler(MethodRequest methodRequest, object userContext)
-        //{
-        //    Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
-
-        //    var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { nrOfMessages = default(int), delay = default(int) });
-
-        //    await SendMessages(payload.nrOfMessages, payload.delay);
-
-        //    return new MethodResponse(0);
-        //}
-
         private static async Task<MethodResponse> DefaultServiceHandler(MethodRequest methodRequest, object userContext)
         {
             Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
 
             await Task.Delay(1000);
 
+            return new MethodResponse(0);
+        }
+
+        private async Task<MethodResponse> EmergencyStop(MethodRequest methodRequest, object userContext)
+        {
+            var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { deviceName = default(string) });
+            Console.WriteLine($"METHOD EXECUTED: {methodRequest.Name} FOR : {payload.deviceName}");
+            opcClient.CallMethod("ns=2;s=" + payload.deviceName, "ns=2;s=" + payload.deviceName + "/EmergencyStop");
+
+            //await Task.Delay(500);
+            return new MethodResponse(0);
+        }
+
+        private async Task<MethodResponse> ResetErrorStatus(MethodRequest methodRequest, object userContext)
+        {
+            var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { deviceName = default(string) });
+            Console.WriteLine($"METHOD EXECUTED: {methodRequest.Name} FOR : {payload.deviceName}");
+            opcClient.CallMethod("ns=2;s=" + payload.deviceName, "ns=2;s=" + payload.deviceName + "/ResetErrorStatus");
+
+            //await Task.Delay(500);
             return new MethodResponse(0);
         }
 
@@ -159,7 +172,7 @@ namespace OpcAgent.Device
 
                 reportedProperties[error_PropertyName] = errorValues[13];
                 reportedProperties[rate_PropertyName] = errorValues[3];
-                await SendMessages(errorValues, sendDeviceError);
+                await SendMessages(errorValues, sendDeviceError, deviceName);
                 await client.UpdateReportedPropertiesAsync(reportedProperties);
                 #endregion
             }
@@ -174,7 +187,7 @@ namespace OpcAgent.Device
 
             await client.UpdateReportedPropertiesAsync(reportedProperties).ConfigureAwait(false);
         }
-        public async Task UpdateProductionRate(OpcClient opcClient, string deviceName)
+        public async Task UpdateProductionRate(string deviceName)
         {
             var twin = await client.GetTwinAsync();
             string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
@@ -185,8 +198,8 @@ namespace OpcAgent.Device
 
             if (!string.IsNullOrEmpty(desired_productionRateValue))
             {
-                int int_ProductionRate; 
-                if(int.TryParse(desired_productionRateValue, out int_ProductionRate))
+                int int_ProductionRate;
+                if (int.TryParse(desired_productionRateValue, out int_ProductionRate))
                 {
                     opcClient.WriteNode("ns=2;s=" + deviceName + "/ProductionRate", int_ProductionRate);
                 }
@@ -199,7 +212,8 @@ namespace OpcAgent.Device
         {
             await client.SetReceiveMessageHandlerAsync(OnC2dMessageReceivedAsync, client);
 
-            //await client.SetMethodHandlerAsync("SendMessages", SendMessagesHandler, client);
+            await client.SetMethodHandlerAsync("EmergencyStop", EmergencyStop, client);
+            await client.SetMethodHandlerAsync("ResetErrorStatus", ResetErrorStatus, client);
             await client.SetMethodDefaultHandlerAsync(DefaultServiceHandler, client);
 
             await client.SetDesiredPropertyUpdateCallbackAsync(OnDesiredPropertyChanged, client);

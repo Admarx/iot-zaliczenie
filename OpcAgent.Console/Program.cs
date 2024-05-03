@@ -3,8 +3,6 @@ using Opc.UaFx.Client;
 using System.Xml;
 using OpcAgent.Device;
 using Microsoft.Azure.Devices.Client;
-using System.Xml.Linq;
-
 #region configs
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
 int whichExecution = 0;
@@ -19,16 +17,6 @@ catch
 {
     config = null;
 }
-
-string deviceConnectionString = "HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=";
-
-using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
-await deviceClient.OpenAsync();
-var device = new VirtualDevice(deviceClient);
-
-await device.InitializeHandlers();
-await device.UpdateTwinAsync();
-
 #endregion 
 
 #region connection
@@ -38,7 +26,18 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
 
     while (config != null)
     {
+        #region variables
         List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
+        string deviceConnectionString = "HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=";
+        using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
+        await deviceClient.OpenAsync();
+        var device = new VirtualDevice(deviceClient, client);
+
+        await device.InitializeHandlers();
+        await device.UpdateTwinAsync();
+
+        #endregion
+
         #region reading nodes
         foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
         {
@@ -99,7 +98,6 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
         {
             IEnumerable<OpcValue> job = client.ReadNodes(command);
             List<String> itemValues = new List<string>();
-            
 
             if (!job.All(x => x.Value == null))
             {
@@ -109,7 +107,7 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
                 }
             }
             await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
-            await device.UpdateProductionRate(client, deviceNames[whichExecution]);
+            await device.UpdateProductionRate(deviceNames[whichExecution]);
             whichExecution++;
         }
         await Task.Delay(15000);
