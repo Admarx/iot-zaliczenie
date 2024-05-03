@@ -3,24 +3,75 @@ using Opc.UaFx.Client;
 using System.Xml;
 using OpcAgent.Device;
 using Microsoft.Azure.Devices.Client;
-#region configs
+
+#region startup configs
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
+bool goodFile = false;
 int whichExecution = 0;
 List<String> deviceNames = new List<string>();
 List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
-try
-{
-    config.Load(filePath);
-}
-catch
-{
-    config = null;
-}
+string connectionAddress = string.Empty;
+string deviceConnectionString = string.Empty;
 #endregion 
 
+Console.WriteLine("Reading the config file");
+
+#region reading config file
+while (!goodFile)
+{
+    try
+    {
+        config.Load(filePath);
+    }
+    catch
+    {
+        config = null;
+        Console.WriteLine("Incorrect config file. Make sure the file exists and has a XML structure, and then press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
+    try
+    {
+        connectionAddress = config.SelectSingleNode("/DeviceConfig/ConnectionAddress").InnerXml;
+        if(string.IsNullOrEmpty(connectionAddress))
+        {
+            Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Modify the file and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }    
+
+    }
+    catch
+    {
+        Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Modify the file and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
+    try
+    {
+        deviceConnectionString = config.SelectSingleNode("/DeviceConfig/AzureConnectionString").InnerXml;
+        if (string.IsNullOrEmpty(deviceConnectionString))
+        {
+            Console.WriteLine("Azure device connection string was not found in the Config file. Modify the file and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Azure device connection string was not found in the Config file. Modify the file and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+    goodFile = true;
+}
+#endregion
+
 #region connection
-using (var client = new OpcClient("opc.tcp://localhost:4840/"))
+using (var client = new OpcClient(connectionAddress))
 {
     client.Connect();
 
@@ -28,7 +79,7 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
     {
         #region variables
         List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
-        string deviceConnectionString = "HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=";
+        //string deviceConnectionString = "HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=";
         using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
         await deviceClient.OpenAsync();
         var device = new VirtualDevice(deviceClient, client);
