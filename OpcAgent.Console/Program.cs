@@ -1,11 +1,13 @@
 ﻿using Opc.UaFx;
 using Opc.UaFx.Client;
 using System.Xml;
-
+using OpcAgent.Device;
+using Microsoft.Azure.Devices.Client;
 #region configs
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
 int whichExecution = 0;
 List<String> deviceNames = new List<string>();
+List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
 try
 {
@@ -15,17 +17,28 @@ catch
 {
     config = null;
 }
-
 #endregion 
 
 #region connection
 using (var client = new OpcClient("opc.tcp://localhost:4840/"))
 {
     client.Connect();
-    List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
 
-    if (config != null)
+    while (config != null)
     {
+        #region variables
+        List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
+        string deviceConnectionString = "HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=";
+        using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
+        await deviceClient.OpenAsync();
+        var device = new VirtualDevice(deviceClient, client);
+
+        await device.InitializeHandlers();
+        await device.UpdateTwinAsync();
+
+        #endregion
+
+        #region reading nodes
         foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
         {
             string name = iterator.SelectSingleNode("Name").InnerText;
@@ -52,9 +65,12 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
                 commandList.Add(commands);
             }
         }
+        #endregion
 
+        #region printing - temporary
+        whichExecution = 0;
         foreach (OpcReadNode[] command in commandList)
-        {            
+        {
             IEnumerable<OpcValue> job = client.ReadNodes(command);
             Console.WriteLine("Printing information about: " + deviceNames[whichExecution]);
             whichExecution++;
@@ -73,6 +89,29 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
             }
             Console.Write("\n");
         }
+        #endregion
+
+        #region sending test
+        whichExecution = 0;
+
+        foreach (OpcReadNode[] command in commandList)
+        {
+            IEnumerable<OpcValue> job = client.ReadNodes(command);
+            List<String> itemValues = new List<string>();
+
+            if (!job.All(x => x.Value == null))
+            {
+                foreach (var item in job)
+                {
+                    itemValues.Add(item.Value.ToString());
+                }
+            }
+            await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
+            await device.UpdateProductionRate(deviceNames[whichExecution]);
+            whichExecution++;
+        }
+        await Task.Delay(15000);
+        #endregion
     }
 }
 #endregion
