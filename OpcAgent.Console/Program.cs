@@ -107,7 +107,7 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
                     itemValues.Add(item.Value.ToString());
                 }
             }
-            await device.UpdateTwinAsyncDeviceErrors(deviceNames[whichExecution], itemValues); 
+            await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues); 
             whichExecution++;
         }
         await Task.Delay(15000);

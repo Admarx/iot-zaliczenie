@@ -11,7 +11,6 @@ namespace OpcAgent.Device
     public class VirtualDevice
     {
         private readonly DeviceClient client;
-        private string previousDeviceState = "0"; // temporary measure
 
         public VirtualDevice(DeviceClient deviceClient)
         {
@@ -131,33 +130,36 @@ namespace OpcAgent.Device
             await client.UpdateReportedPropertiesAsync(reportedProperties);
         }
 
-        public async Task UpdateTwinAsyncDeviceErrors(string deviceName, List<string> errorValues)
+        public async Task UpdateReportedTwinAsync(string deviceName, List<string> errorValues)
         {
             if (errorValues.Count == 14)
             {
+                #region variables
+                bool sendDeviceError = false; // our flag checking if there was a device Error change
+                
                 var twin = await client.GetTwinAsync();
                 string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
                 TwinCollection twinCollectionJSON = new TwinCollection(json);
                 JObject jobjectJSON = JObject.Parse(json);
 
-                deviceName = deviceName.Replace(" ", "");
-                string propertyName = deviceName + "_error_state";
-                string previousValue = (string)jobjectJSON["properties"]["reported"][propertyName];
-                if (previousValue != null && previousValue != errorValues[13])
-                {
-                    Console.WriteLine($"\n{deviceName} device error value set to {errorValues[13]}\n");
-                    Console.WriteLine();
+                string error_PropertyName = deviceName.Replace(" ", "") + "_error_state";
+                string error_previousValue = (string)jobjectJSON["properties"]["reported"][error_PropertyName];
+                string rate_PropertyName = deviceName.Replace(" ", "") + "_production_rate";
+                var reportedProperties = new TwinCollection();
+                #endregion
 
-                    var reportedProperties = new TwinCollection();
-                    reportedProperties[propertyName] = errorValues[13];
-
-                    await client.UpdateReportedPropertiesAsync(reportedProperties);
-                    await SendMessages(errorValues, true);
-                }
-                else
+                #region D2C message
+ 
+                if (error_previousValue != null && error_previousValue != errorValues[13]) // If there was a device error change (but it didn't appear for the first time - send to IoT)
                 {
-                    await SendMessages(errorValues, false);
+                    sendDeviceError = true;
                 }
+
+                reportedProperties[error_PropertyName] = errorValues[13];
+                reportedProperties[rate_PropertyName] = errorValues[3];
+                await SendMessages(errorValues, sendDeviceError);
+                await client.UpdateReportedPropertiesAsync(reportedProperties);
+                #endregion
             }
         }
 
