@@ -1,10 +1,13 @@
-﻿using Microsoft.Azure.Amqp.Framing;
+﻿using Opc.UaFx;
+using Opc.UaFx.Client;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
+using System.Xml.Linq;
+using DotNetty.Common.Utilities;
 
 namespace OpcAgent.Device
 {
@@ -55,10 +58,10 @@ namespace OpcAgent.Device
                 eventMessage.ContentEncoding = "utf-8";
 
                 //eventMessage.Properties.Add("deviceErrors", readNodeValues[13]);
-                
+
                 //Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {count}, Data: [{dataString}]");
                 await client.SendEventAsync(eventMessage);
-                
+
             }
             //await Task.Delay(delay);
         }
@@ -136,10 +139,9 @@ namespace OpcAgent.Device
             {
                 #region variables
                 bool sendDeviceError = false; // our flag checking if there was a device Error change
-                
+
                 var twin = await client.GetTwinAsync();
                 string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
-                TwinCollection twinCollectionJSON = new TwinCollection(json);
                 JObject jobjectJSON = JObject.Parse(json);
 
                 string error_PropertyName = deviceName.Replace(" ", "") + "_error_state";
@@ -149,7 +151,7 @@ namespace OpcAgent.Device
                 #endregion
 
                 #region D2C message
- 
+
                 if (error_previousValue != null && error_previousValue != errorValues[13]) // If there was a device error change (but it didn't appear for the first time - send to IoT)
                 {
                     sendDeviceError = true;
@@ -172,6 +174,24 @@ namespace OpcAgent.Device
 
             await client.UpdateReportedPropertiesAsync(reportedProperties).ConfigureAwait(false);
         }
+        public async Task UpdateProductionRate(OpcClient opcClient, string deviceName)
+        {
+            var twin = await client.GetTwinAsync();
+            string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
+            JObject jobjectJSON = JObject.Parse(json);
+
+            string desired_productionRateName = deviceName.Replace(" ", "") + "_production_rate";
+            string desired_productionRateValue = (string)jobjectJSON["properties"]["desired"][desired_productionRateName];
+
+            if (!string.IsNullOrEmpty(desired_productionRateValue))
+            {
+                int int_ProductionRate; 
+                if(int.TryParse(desired_productionRateValue, out int_ProductionRate))
+                {
+                    opcClient.WriteNode("ns=2;s=" + deviceName + "/ProductionRate", int_ProductionRate);
+                }
+            }
+        }
 
         #endregion Device Twin
 
@@ -184,5 +204,7 @@ namespace OpcAgent.Device
 
             await client.SetDesiredPropertyUpdateCallbackAsync(OnDesiredPropertyChanged, client);
         }
+
+
     }
 }

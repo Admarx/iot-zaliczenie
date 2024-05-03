@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Devices.Client" Version="1.41.0" />
+    <PackageReference Include="Opc.UaFx.Client" Version="2.29.0" />
   </ItemGroup>
 
 </Project>

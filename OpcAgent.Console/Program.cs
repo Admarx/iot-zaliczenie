@@ -3,6 +3,7 @@ using Opc.UaFx.Client;
 using System.Xml;
 using OpcAgent.Device;
 using Microsoft.Azure.Devices.Client;
+using System.Xml.Linq;
 
 #region configs
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
@@ -107,7 +108,8 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
                     itemValues.Add(item.Value.ToString());
                 }
             }
-            await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues); 
+            await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
+            await device.UpdateProductionRate(client, deviceNames[whichExecution]);
             whichExecution++;
         }
         await Task.Delay(15000);
