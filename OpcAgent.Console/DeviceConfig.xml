@@ -1,6 +1,7 @@
 <DeviceConfig>
 	<ConnectionAddress>opc.tcp://localhost:4840/</ConnectionAddress>
 	<AzureConnectionString>HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=</AzureConnectionString>
+	<TelemetryDelay>15000</TelemetryDelay>
 	<Device>
 		<Name>Device 1</Name>
 	</Device>
