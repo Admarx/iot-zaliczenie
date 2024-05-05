@@ -1,13 +1,10 @@
-﻿using Opc.UaFx;
-using Opc.UaFx.Client;
+﻿using Opc.UaFx.Client;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
-using System.Xml.Linq;
-using DotNetty.Common.Utilities;
 
 namespace OpcAgent.Device
 {
@@ -56,56 +53,21 @@ namespace OpcAgent.Device
                     };
                     dataString = JsonConvert.SerializeObject(data);
                 }
-
                 Message eventMessage = new Message(Encoding.UTF8.GetBytes(dataString));
                 eventMessage.ContentType = MediaTypeNames.Application.Json;
                 eventMessage.ContentEncoding = "utf-8";
 
-                //eventMessage.Properties.Add("deviceErrors", readNodeValues[13]);
-
-                //Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {count}, Data: [{dataString}]");
                 await client.SendEventAsync(eventMessage);
-
             }
-            //await Task.Delay(delay);
         }
 
         #endregion Sending Messages
-
-        #region Receiving Messages
-
-        private async Task OnC2dMessageReceivedAsync(Message receivedMessage, object _)
-        {
-            Console.WriteLine($"\t{DateTime.Now}> C2D message callback - message received with Id={receivedMessage.MessageId}.");
-            PrintMessage(receivedMessage);
-
-            await client.CompleteAsync(receivedMessage);
-            Console.WriteLine($"\t{DateTime.Now}> Completed C2D message with Id={receivedMessage.MessageId}.");
-
-            receivedMessage.Dispose();
-        }
-
-        private void PrintMessage(Message receivedMessage)
-        {
-            string messageData = Encoding.ASCII.GetString(receivedMessage.GetBytes());
-            Console.WriteLine($"\t\tReceived message: {messageData}");
-
-            int propCount = 0;
-            foreach (var prop in receivedMessage.Properties)
-            {
-                Console.WriteLine($"\t\tProperty[{propCount++}> Key={prop.Key} : Value={prop.Value}");
-            }
-        }
-
-        #endregion Receiving Messages
 
         #region Direct Methods
 
         private static async Task<MethodResponse> DefaultServiceHandler(MethodRequest methodRequest, object userContext)
         {
-            Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
-
-            await Task.Delay(1000);
+            Console.WriteLine($"\tUNIMPLEMENTED METHOD EXECUTED: {methodRequest.Name}");
 
             return new MethodResponse(0);
         }
@@ -116,7 +78,6 @@ namespace OpcAgent.Device
             Console.WriteLine($"METHOD EXECUTED: {methodRequest.Name} FOR : {payload.deviceName}");
             opcClient.CallMethod("ns=2;s=" + payload.deviceName, "ns=2;s=" + payload.deviceName + "/EmergencyStop");
 
-            //await Task.Delay(500);
             return new MethodResponse(0);
         }
 
@@ -126,7 +87,6 @@ namespace OpcAgent.Device
             Console.WriteLine($"METHOD EXECUTED: {methodRequest.Name} FOR : {payload.deviceName}");
             opcClient.CallMethod("ns=2;s=" + payload.deviceName, "ns=2;s=" + payload.deviceName + "/ResetErrorStatus");
 
-            //await Task.Delay(500);
             return new MethodResponse(0);
         }
 
@@ -134,16 +94,32 @@ namespace OpcAgent.Device
 
         #region Device Twin
 
-        public async Task UpdateTwinAsync()
+        public async Task PrintTwinAsync()
         {
             var twin = await client.GetTwinAsync();
             Console.WriteLine($"\nInitial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
-            Console.WriteLine();
+        }
 
+        public async Task ClearReportedTwinAsync()
+        {
+            var twin = await client.GetTwinAsync();
             var reportedProperties = new TwinCollection();
-            reportedProperties["DateTimeLastAppLaunch"] = DateTime.Now;
+            string reportedJSON = twin.Properties.Reported.ToJson(Formatting.None);
+            Dictionary<string, object> propertiesDict = JsonConvert.DeserializeObject<Dictionary<string, object>>(reportedJSON);
+            propertiesDict.Remove("$version");
+            foreach (var value in propertiesDict)
+            {
+                reportedProperties[value.Key] = null;
+            }
 
-            await client.UpdateReportedPropertiesAsync(reportedProperties);
+            try
+            {
+                await client.UpdateReportedPropertiesAsync(reportedProperties);
+            }
+            catch
+            {
+                Console.WriteLine("Reported Device Twin cleanup failed.");
+            }
         }
 
         public async Task UpdateReportedTwinAsync(string deviceName, List<string> errorValues)
@@ -177,16 +153,6 @@ namespace OpcAgent.Device
                 #endregion
             }
         }
-
-        private async Task OnDesiredPropertyChanged(TwinCollection desiredProperties, object userContext)
-        {
-            Console.WriteLine($"\tDesired property change:\n\t{JsonConvert.SerializeObject(desiredProperties)}");
-            Console.WriteLine("\tSending current time as reported property");
-            TwinCollection reportedProperties = new TwinCollection();
-            reportedProperties["DateTimeLastDesiredPropertyChangeReceived"] = DateTime.Now;
-
-            await client.UpdateReportedPropertiesAsync(reportedProperties).ConfigureAwait(false);
-        }
         public async Task UpdateProductionRate(string deviceName)
         {
             var twin = await client.GetTwinAsync();
@@ -210,15 +176,9 @@ namespace OpcAgent.Device
 
         public async Task InitializeHandlers()
         {
-            await client.SetReceiveMessageHandlerAsync(OnC2dMessageReceivedAsync, client);
-
             await client.SetMethodHandlerAsync("EmergencyStop", EmergencyStop, client);
             await client.SetMethodHandlerAsync("ResetErrorStatus", ResetErrorStatus, client);
             await client.SetMethodDefaultHandlerAsync(DefaultServiceHandler, client);
-
-            await client.SetDesiredPropertyUpdateCallbackAsync(OnDesiredPropertyChanged, client);
         }
-
-
     }
 }

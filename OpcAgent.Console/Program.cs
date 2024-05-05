@@ -8,6 +8,7 @@ using Microsoft.Azure.Devices.Client;
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
 bool goodFile = false;
 int whichExecution = 0;
+Int32 telemetryDelay = 10000; // time in ms (10 seconds by default)
 List<String> deviceNames = new List<string>();
 List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
@@ -66,6 +67,38 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+
+    try
+    {
+        string str_TelemetryDelay = config.SelectSingleNode("/DeviceConfig/TelemetryDelay").InnerXml;
+        if (string.IsNullOrEmpty(deviceConnectionString))
+        {
+            Console.WriteLine("Telemetry Delay value was not found in the Config file. Default value (10 seconds) will be used instead.");
+        }
+        else
+        {
+            Int32 uint_TelemetryDelay;
+            if(Int32.TryParse(str_TelemetryDelay, out uint_TelemetryDelay))
+            {
+                if(uint_TelemetryDelay < 5000)
+                {
+                    Console.WriteLine("Telemetry Delay value in the Config file was lower than 5 seconds. Default value (10 seconds) will be used instead.");
+                }
+                else
+                {
+                    telemetryDelay = uint_TelemetryDelay;
+                }
+            }
+            else
+            {
+                Console.WriteLine("Telemetry Delay value was incorrect - default value (10 seconds) will be used instead.");
+            }
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Telemetry Delay value did not exist - default value (10 seconds) will be used instead.");
+    }
     goodFile = true;
 }
 #endregion
@@ -75,19 +108,18 @@ using (var client = new OpcClient(connectionAddress))
 {
     client.Connect();
 
+    #region before loop
+    using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
+    await deviceClient.OpenAsync();
+    var device = new VirtualDevice(deviceClient, client);
+    await device.InitializeHandlers();
+    await device.ClearReportedTwinAsync();
+    #endregion
+
     while (config != null)
     {
-        #region variables
+        
         List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
-        //string deviceConnectionString = "HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=";
-        using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
-        await deviceClient.OpenAsync();
-        var device = new VirtualDevice(deviceClient, client);
-
-        await device.InitializeHandlers();
-        await device.UpdateTwinAsync();
-
-        #endregion
 
         #region reading nodes
         foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
@@ -119,6 +151,7 @@ using (var client = new OpcClient(connectionAddress))
         #endregion
 
         #region printing - temporary
+        await device.PrintTwinAsync();
         whichExecution = 0;
         foreach (OpcReadNode[] command in commandList)
         {
@@ -161,7 +194,7 @@ using (var client = new OpcClient(connectionAddress))
             await device.UpdateProductionRate(deviceNames[whichExecution]);
             whichExecution++;
         }
-        await Task.Delay(15000);
+        await Task.Delay(telemetryDelay);
         #endregion
     }
 }
