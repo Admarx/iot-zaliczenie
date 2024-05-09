@@ -5,6 +5,10 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
+using Azure.Messaging.ServiceBus;
+using Microsoft.Win32;
+using Microsoft.Azure.Devices;
+using Message = Microsoft.Azure.Devices.Client.Message;
 
 namespace OpcAgent.Device
 {
@@ -12,11 +16,15 @@ namespace OpcAgent.Device
     {
         private readonly DeviceClient client;
         private OpcClient opcClient;
+        private RegistryManager registryManager;
+        private string azureDeviceName;
 
-        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient)
+        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient, RegistryManager registryManager, string azureDeviceName)
         {
             this.client = deviceClient;
             this.opcClient = opcClient;
+            this.registryManager = registryManager;
+            this.azureDeviceName = azureDeviceName;
         }
 
         #region Sending Messages
@@ -174,11 +182,60 @@ namespace OpcAgent.Device
 
         #endregion Device Twin
 
+        #region BusinessLogic
+        public async Task EmergencyStop_ProcessMessageAsync(ProcessMessageEventArgs arg)
+        {
+            string deviceName = arg.Message.MessageId;
+            MethodRequest methodRequest = new MethodRequest(JsonConvert.SerializeObject("\"deviceName\":\"" + deviceName + "\""));
+            await EmergencyStop(methodRequest, client);
+
+            await arg.CompleteMessageAsync(arg.Message);
+        }
+
+        public async Task LowerProduction_ProcessMessageAsync(ProcessMessageEventArgs arg)
+        {
+            string deviceName = arg.Message.MessageId;
+            var twin = await client.GetTwinAsync();
+            string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
+            JObject jobjectJSON = JObject.Parse(json);
+            string rate_PropertyName = deviceName.Replace(" ", "") + "_production_rate";
+            string rate_previousValue = (string)jobjectJSON["properties"]["reported"][rate_PropertyName];
+            if(!string.IsNullOrEmpty(rate_previousValue))
+            {
+                int int_previousRate;
+                if (int.TryParse(rate_previousValue, out int_previousRate))
+                {
+                    if(int_previousRate - 10 > 0)
+                    {
+                        int_previousRate -= 10;
+                    }
+                    else
+                    {
+                        int_previousRate = 0;
+                    }
+                    var twin2 = await registryManager.GetTwinAsync(azureDeviceName);
+                    twin2.Properties.Desired[rate_PropertyName] = int_previousRate;
+                    await registryManager.UpdateTwinAsync(twin2.DeviceId, twin2, twin2.ETag);
+                }
+            }
+
+
+            await arg.CompleteMessageAsync(arg.Message);
+        }
+
+        public Task Message_ProcessError(ProcessErrorEventArgs arg)
+        {
+            Console.WriteLine("SERVICE BUS ENCOUNTERED AN ERROR. PLEASE SEE ATTACHED MESSAGE: "+arg.Exception.Message);
+            return Task.CompletedTask;
+        }
+        #endregion
+
         public async Task InitializeHandlers()
         {
             await client.SetMethodHandlerAsync("EmergencyStop", EmergencyStop, client);
             await client.SetMethodHandlerAsync("ResetErrorStatus", ResetErrorStatus, client);
             await client.SetMethodDefaultHandlerAsync(DefaultServiceHandler, client);
         }
+
     }
 }

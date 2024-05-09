@@ -3,6 +3,9 @@ using Opc.UaFx.Client;
 using System.Xml;
 using OpcAgent.Device;
 using Microsoft.Azure.Devices.Client;
+using Azure.Messaging.ServiceBus;
+using Newtonsoft.Json;
+using Microsoft.Azure.Devices;
 
 #region startup configs
 string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
@@ -14,6 +17,12 @@ List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
 string connectionAddress = string.Empty;
 string deviceConnectionString = string.Empty;
+
+string serviceBusConnectionString = string.Empty;
+string emergencyStopQueueName = string.Empty;
+string lowerProductionQueueName = string.Empty;
+string registryManagerConnectionString = string.Empty;
+string azureDeviceName = string.Empty;
 #endregion 
 
 Console.WriteLine("Reading the config file");
@@ -99,6 +108,14 @@ while (!goodFile)
     {
         Console.WriteLine("Telemetry Delay value did not exist - default value (10 seconds) will be used instead.");
     }
+    // Todo: validation for 5 new fields
+    serviceBusConnectionString = config.SelectSingleNode("/DeviceConfig/ServiceBusConnectionString").InnerXml;
+    emergencyStopQueueName = config.SelectSingleNode("/DeviceConfig/EmergencyStopQueueName").InnerXml;
+    lowerProductionQueueName = config.SelectSingleNode("/DeviceConfig/LowerProductionRateQueueName").InnerXml;
+    registryManagerConnectionString = config.SelectSingleNode("/DeviceConfig/RegistryManagerConnectionString").InnerXml;
+    azureDeviceName = config.SelectSingleNode("/DeviceConfig/AzureDeviceName").InnerXml;
+
+
     goodFile = true;
 }
 #endregion
@@ -109,11 +126,28 @@ using (var client = new OpcClient(connectionAddress))
     client.Connect();
 
     #region before loop
-    using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
+    using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, Microsoft.Azure.Devices.Client.TransportType.Mqtt);
+    using var registryManager = RegistryManager.CreateFromConnectionString(registryManagerConnectionString);
     await deviceClient.OpenAsync();
-    var device = new VirtualDevice(deviceClient, client);
+    var device = new VirtualDevice(deviceClient, client, registryManager, azureDeviceName);
     await device.InitializeHandlers();
     await device.ClearReportedTwinAsync();
+    #endregion
+
+    #region servicebus setup
+    await using ServiceBusClient serviceBus_client = new ServiceBusClient(serviceBusConnectionString);
+    await using ServiceBusProcessor emergencyStop_processor = serviceBus_client.CreateProcessor(emergencyStopQueueName);
+    await using ServiceBusProcessor lowerProduction_processor = serviceBus_client.CreateProcessor(lowerProductionQueueName);
+
+    emergencyStop_processor.ProcessMessageAsync += device.EmergencyStop_ProcessMessageAsync;
+    emergencyStop_processor.ProcessErrorAsync += device.Message_ProcessError;
+
+    lowerProduction_processor.ProcessMessageAsync += device.LowerProduction_ProcessMessageAsync;
+    lowerProduction_processor.ProcessErrorAsync += device.Message_ProcessError;
+
+    await emergencyStop_processor.StartProcessingAsync();
+    await lowerProduction_processor.StartProcessingAsync();
+
     #endregion
 
     while (config != null)
@@ -177,7 +211,6 @@ using (var client = new OpcClient(connectionAddress))
 
         #region sending test
         whichExecution = 0;
-
         foreach (OpcReadNode[] command in commandList)
         {
             IEnumerable<OpcValue> job = client.ReadNodes(command);
