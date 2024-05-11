@@ -18,13 +18,15 @@ namespace OpcAgent.Device
         private OpcClient opcClient;
         private RegistryManager registryManager;
         private string azureDeviceName;
+        bool debug;
 
-        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient, RegistryManager registryManager, string azureDeviceName)
+        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient, RegistryManager registryManager, string azureDeviceName, bool debug)
         {
             this.client = deviceClient;
             this.opcClient = opcClient;
             this.registryManager = registryManager;
             this.azureDeviceName = azureDeviceName;
+            this.debug = debug;
         }
 
         #region Sending Messages
@@ -126,7 +128,7 @@ namespace OpcAgent.Device
             }
             catch
             {
-                Console.WriteLine("Reported Device Twin cleanup failed.");
+                if (!debug) { Console.WriteLine("Reported Device Twin cleanup failed."); }
             }
         }
 
@@ -189,7 +191,7 @@ namespace OpcAgent.Device
 
         #endregion Device Twin
 
-        #region BusinessLogic
+        #region Business Logic
         public async Task EmergencyStop_ProcessMessageAsync(ProcessMessageEventArgs arg)
         {
             string deviceName = arg.Message.MessageId;
@@ -228,6 +230,7 @@ namespace OpcAgent.Device
                     }
                     twin.Properties.Desired[rate_PropertyName] = int_previousRate;
                     await registryManager.UpdateTwinAsync(twin.DeviceId, twin, twin.ETag);
+                    Console.WriteLine($"PRODUCTION RATE LOWERED FOR: {deviceName} DUE TO KPI BELOW 90%");
                 }
             }
             await arg.CompleteMessageAsync(arg.Message);
@@ -235,7 +238,8 @@ namespace OpcAgent.Device
 
         public Task Message_ProcessError(ProcessErrorEventArgs arg)
         {
-            Console.WriteLine("SERVICE BUS ENCOUNTERED AN ERROR. PLEASE SEE ATTACHED MESSAGE: "+arg.Exception.Message);
+            if (!debug) { Console.WriteLine("SERVICE BUS ENCOUNTERED AN ERROR. PLEASE SEE ATTACHED MESSAGE: " + arg.Exception.Message);  }
+            else { Console.WriteLine("SERVICE BUS ENCOUNTERED AN ERROR. PLEASE SEE ATTACHED MESSAGE: " + arg.Exception.ToString()); }
             return Task.CompletedTask;
         }
         #endregion
