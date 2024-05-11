@@ -17,4 +17,10 @@
     <ProjectReference Include="..\OpcAgent.Device\OpcAgent.Device.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="DeviceConfig.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
