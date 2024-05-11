@@ -137,6 +137,7 @@ using (var client = new OpcClient(connectionAddress))
     #region servicebus setup
     await using ServiceBusClient serviceBus_client = new ServiceBusClient(serviceBusConnectionString);
     await using ServiceBusProcessor emergencyStop_processor = serviceBus_client.CreateProcessor(emergencyStopQueueName);
+    //await using ServiceBusClient serviceBus_client2 = new ServiceBusClient(serviceBusConnectionString);
     await using ServiceBusProcessor lowerProduction_processor = serviceBus_client.CreateProcessor(lowerProductionQueueName);
 
     emergencyStop_processor.ProcessMessageAsync += device.EmergencyStop_ProcessMessageAsync;

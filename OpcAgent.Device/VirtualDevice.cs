@@ -186,7 +186,9 @@ namespace OpcAgent.Device
         public async Task EmergencyStop_ProcessMessageAsync(ProcessMessageEventArgs arg)
         {
             string deviceName = arg.Message.MessageId;
-            MethodRequest methodRequest = new MethodRequest(JsonConvert.SerializeObject("\"deviceName\":\"" + deviceName + "\""));
+            string str_data = "{\"deviceName\":\"" + deviceName + "\"}";
+            byte[] byte_data = Encoding.ASCII.GetBytes(str_data);
+            MethodRequest methodRequest = new MethodRequest(JsonConvert.SerializeObject(str_data),byte_data);
             await EmergencyStop(methodRequest, client);
 
             await arg.CompleteMessageAsync(arg.Message);
