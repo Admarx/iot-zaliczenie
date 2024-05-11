@@ -4,11 +4,10 @@ using System.Xml;
 using OpcAgent.Device;
 using Microsoft.Azure.Devices.Client;
 using Azure.Messaging.ServiceBus;
-using Newtonsoft.Json;
 using Microsoft.Azure.Devices;
-using System.IO;
 
-#region startup configs
+// Most of these are for the purposes of storing data from the configuration file
+#region Startup Configuration
 string filePath = null;
 bool goodFile = false;
 int whichExecution = 0;
@@ -16,21 +15,24 @@ Int32 telemetryDelay = 10000; // time in ms (10 seconds by default)
 List<String> deviceNames = new List<string>();
 List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
+
 string connectionAddress = string.Empty;
 string deviceConnectionString = string.Empty;
-
 string serviceBusConnectionString = string.Empty;
 string emergencyStopQueueName = string.Empty;
 string lowerProductionQueueName = string.Empty;
 string registryManagerConnectionString = string.Empty;
 string azureDeviceName = string.Empty;
+bool debug = false;
 #endregion 
 
 Console.WriteLine("Reading the config file");
 
-#region reading config file
+#region Config file
 while (!goodFile)
 {
+    // This section is responsible for getting a proper XML file
+    #region File Reading
     Console.WriteLine("Insert the config file path relative to the program");
     filePath = Console.ReadLine();
     if (File.Exists(filePath))
@@ -53,16 +55,22 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
 
+    // I use try..catch as a method of pinpointing whether the XML Element exists or not - if it doesn't, SelectSingleNode returns null, so trying to read a Property from it throws a nullException
+    #region File Validation
+
+    // Mandatory
+    #region Connection Address
     try
     {
         connectionAddress = config.SelectSingleNode("/DeviceConfig/ConnectionAddress").InnerXml;
-        if(string.IsNullOrEmpty(connectionAddress))
+        if (string.IsNullOrEmpty(connectionAddress))
         {
             Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Insert the connection string into the <ConnectionAddress> element and press any key to retry.");
             Console.ReadKey();
             continue;
-        }    
+        }
 
     }
     catch
@@ -71,7 +79,10 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
 
+    // Mandatory
+    #region Azure Connection String
     try
     {
         deviceConnectionString = config.SelectSingleNode("/DeviceConfig/AzureConnectionString").InnerXml;
@@ -88,7 +99,10 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
 
+    // Optional, default value 10 seconds, the lowest the file configuration can go is 5 seconds
+    #region Telemetry Delay
     try
     {
         string str_TelemetryDelay = config.SelectSingleNode("/DeviceConfig/TelemetryDelay").InnerXml;
@@ -99,9 +113,9 @@ while (!goodFile)
         else
         {
             Int32 uint_TelemetryDelay;
-            if(Int32.TryParse(str_TelemetryDelay, out uint_TelemetryDelay))
+            if (Int32.TryParse(str_TelemetryDelay, out uint_TelemetryDelay))
             {
-                if(uint_TelemetryDelay < 5000)
+                if (uint_TelemetryDelay < 5000)
                 {
                     Console.WriteLine("Telemetry Delay value in the Config file was lower than 5 seconds. Default value (10 seconds) will be used instead.");
                 }
@@ -120,7 +134,10 @@ while (!goodFile)
     {
         Console.WriteLine("Telemetry Delay value did not exist - default value (10 seconds) will be used instead.");
     }
+    #endregion
 
+    // Mandatory
+    #region Service Bus Connection String
     try
     {
         serviceBusConnectionString = config.SelectSingleNode("/DeviceConfig/ServiceBusConnectionString").InnerXml;
@@ -137,7 +154,10 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
 
+    // Mandatory
+    #region Emergency Stop Queue Name
     try
     {
         emergencyStopQueueName = config.SelectSingleNode("/DeviceConfig/EmergencyStopQueueName").InnerXml;
@@ -154,7 +174,10 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
-
+    #endregion
+    
+    // Mandatory
+    #region Lower Production Queue Name
     try
     {
         lowerProductionQueueName = config.SelectSingleNode("/DeviceConfig/LowerProductionRateQueueName").InnerXml;
@@ -171,7 +194,10 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
 
+    // Mandatory
+    #region Azure Device Name
     try
     {
         azureDeviceName = config.SelectSingleNode("/DeviceConfig/AzureDeviceName").InnerXml;
@@ -188,7 +214,10 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
 
+    // Mandatory
+    #region Registry Manager Connection String
     try
     {
         registryManagerConnectionString = config.SelectSingleNode("/DeviceConfig/RegistryManagerConnectionString").InnerXml;
@@ -205,6 +234,57 @@ while (!goodFile)
         Console.ReadKey();
         continue;
     }
+    #endregion
+
+    // Optional, Debug = true means more information on the console, Debug = false means only DirectMethods and ServiceBus Queue Errors show up in the console. 
+    #region Debug Mode
+    try
+    {
+        string str_DebugMode = config.SelectSingleNode("/DeviceConfig/@debug").InnerXml;
+        if (string.IsNullOrEmpty(str_DebugMode))
+        {
+            Console.WriteLine("Debug attribute was not found in the Config file. Default value (false) will be used instead, all information except for Direct Methods calls will be suppressed");
+        }
+        else
+        {
+            if (str_DebugMode == "true")
+            {
+                debug = true;
+                Console.WriteLine("Debug value set to \"true\", all information will be printed out.");
+            }
+            else
+            {
+                Console.WriteLine("Debug value set to \"false\", all information except for Direct Methods calls will be suppressed");
+            }
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Debug value did not exist - default value (false) will be used instead, all information except for Direct Methods calls will be suppressed.");
+    }
+    #endregion
+
+    //At least one Device with a Name node is required
+    #region Devices
+    try
+    {
+        var nodes = config.SelectNodes("/DeviceConfig/Device/Name");
+        if (nodes.Count == 0)
+        {
+            Console.WriteLine("Device information was not found in the Config file. Insert at least one <Device> element with a <Name> child node and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("There was an error with reading the Devices. Modify the file by adding at least one <Device> element with a <Name> child node and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+    #endregion
+
+    #endregion
 
     goodFile = true;
 }
@@ -212,24 +292,26 @@ while (!goodFile)
 
 Console.WriteLine("Config file has been successfully loaded");
 
-#region connection
+// After the config file tests ended successfully, we can proceed with connecting to the OPC UA Server
+#region Connection
 using (var client = new OpcClient(connectionAddress))
 {
     client.Connect();
 
-    #region before loop
+    // We create an instance of our Azure Device using data from the Config file.
+    #region Virtual Device Setup
     using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, Microsoft.Azure.Devices.Client.TransportType.Mqtt);
     using var registryManager = RegistryManager.CreateFromConnectionString(registryManagerConnectionString);
     await deviceClient.OpenAsync();
-    var device = new VirtualDevice(deviceClient, client, registryManager, azureDeviceName);
+    var device = new VirtualDevice(deviceClient, client, registryManager, azureDeviceName, debug);
     await device.InitializeHandlers();
     await device.ClearReportedTwinAsync();
     #endregion
 
-    #region servicebus setup
+    // We setup the ServiceBusQueues to handle Emergency Stop and Lowering Production Rate (in the future - sending mail as well)
+    #region Service Bus Setup
     await using ServiceBusClient serviceBus_client = new ServiceBusClient(serviceBusConnectionString);
     await using ServiceBusProcessor emergencyStop_processor = serviceBus_client.CreateProcessor(emergencyStopQueueName);
-    //await using ServiceBusClient serviceBus_client2 = new ServiceBusClient(serviceBusConnectionString);
     await using ServiceBusProcessor lowerProduction_processor = serviceBus_client.CreateProcessor(lowerProductionQueueName);
 
     emergencyStop_processor.ProcessMessageAsync += device.EmergencyStop_ProcessMessageAsync;
@@ -240,88 +322,193 @@ using (var client = new OpcClient(connectionAddress))
 
     await emergencyStop_processor.StartProcessingAsync();
     await lowerProduction_processor.StartProcessingAsync();
-
     #endregion
 
-    while (config != null)
+    // Here we use the debug flag from the config file
+    // Debug = true means more information on the console, Debug = false means only DirectMethods and ServiceBus Queue Errors show up in the console.
+    if (debug)
     {
-        
-        List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
-
-        #region reading nodes
-        foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
+        #region Debug
+        while (true)
         {
-            string name = iterator.SelectSingleNode("Name").InnerText;
-            deviceNames.Add(name);
-            if (!string.IsNullOrEmpty(name))
-            {
-                OpcReadNode[] commands = new OpcReadNode[] {
-        new OpcReadNode("ns=2;s="+name+"/ProductionStatus", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/ProductionStatus"),
-        new OpcReadNode("ns=2;s="+name+"/ProductionRate", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/ProductionRate"),
-        new OpcReadNode("ns=2;s="+name+"/WorkorderId", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/WorkorderId"),
-        new OpcReadNode("ns=2;s="+name+"/Temperature", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/Temperature"),
-        new OpcReadNode("ns=2;s="+name+"/GoodCount", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/GoodCount"),
-        new OpcReadNode("ns=2;s="+name+"/BadCount", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/BadCount"),
-        new OpcReadNode("ns=2;s="+name+"/DeviceError", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s="+name+"/DeviceError"),
-        };
+            List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
 
-                commandList.Add(commands);
-            }
-        }
-        #endregion
-
-        #region printing - temporary
-        await device.PrintTwinAsync();
-        whichExecution = 0;
-        foreach (OpcReadNode[] command in commandList)
-        {
-            IEnumerable<OpcValue> job = client.ReadNodes(command);
-            Console.WriteLine("Printing information about: " + deviceNames[whichExecution]);
-            whichExecution++;
-
-            if (job.All(x => x.Value == null))
+            // We get Device parameters from the server for each Device in the config file
+            #region Reading Devices
+            deviceNames.Clear();
+            foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
             {
-                Console.WriteLine("No information found about this device. Please check the configuration file and/or the device itself.");
-            }
-            else
-            {
-                foreach (var item in job)
+                string name = iterator.SelectSingleNode("Name").InnerText;
+                deviceNames.Add(name);
+                if (!string.IsNullOrEmpty(name))
                 {
-                    var testvalue = item.Value;
-                    Console.WriteLine(item.Value);
+                    OpcReadNode[] commands = new OpcReadNode[] {
+                new OpcReadNode("ns=2;s="+name+"/ProductionStatus", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/ProductionStatus"),
+                new OpcReadNode("ns=2;s="+name+"/ProductionRate", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/ProductionRate"),
+                new OpcReadNode("ns=2;s="+name+"/WorkorderId", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/WorkorderId"),
+                new OpcReadNode("ns=2;s="+name+"/Temperature", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/Temperature"),
+                new OpcReadNode("ns=2;s="+name+"/GoodCount", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/GoodCount"),
+                new OpcReadNode("ns=2;s="+name+"/BadCount", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/BadCount"),
+                new OpcReadNode("ns=2;s="+name+"/DeviceError", OpcAttribute.DisplayName),
+                new OpcReadNode("ns=2;s="+name+"/DeviceError"),
+                };
+
+                    commandList.Add(commands);
                 }
             }
-            Console.Write("\n");
-        }
-        #endregion
+            #endregion
 
-        #region sending test
-        whichExecution = 0;
-        foreach (OpcReadNode[] command in commandList)
-        {
-            IEnumerable<OpcValue> job = client.ReadNodes(command);
-            List<String> itemValues = new List<string>();
-
-            if (!job.All(x => x.Value == null))
+            #region Printing Information
+            await device.PrintTwinAsync();
+            whichExecution = 0;
+            foreach (OpcReadNode[] command in commandList)
             {
-                foreach (var item in job)
+                IEnumerable<OpcValue> job = client.ReadNodes(command);
+                Console.WriteLine("Printing information about: " + deviceNames[whichExecution]);
+                whichExecution++;
+
+                // In case the Config file contains a Device that doesn't exist (or one that simply doesn't provide any information) we print an information about it.
+                if (job.All(x => x.Value == null))
                 {
-                    itemValues.Add(item.Value.ToString());
+                    Console.WriteLine("No information found about this device. Please check the configuration file and/or the device itself.");
                 }
+                else // Otherwise, we print node information we did get
+                {
+                    foreach (var item in job)
+                    {
+                        var testvalue = item.Value;
+                        Console.WriteLine(item.Value);
+                    }
+                }
+                Console.Write("\n");
             }
-            await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
-            await device.UpdateProductionRate(deviceNames[whichExecution]);
-            whichExecution++;
+            #endregion
+
+            #region Sending Telemetry
+            whichExecution = 0;
+            foreach (OpcReadNode[] command in commandList)
+            {
+                IEnumerable<OpcValue> job = client.ReadNodes(command);
+                List<String> itemValues = new List<string>();
+               
+                if (!job.Any(x => x.Value == null))  // We send telemetry of all values are present (the device gave 100% of the information)
+                {
+                    foreach (var item in job)
+                    {
+                        itemValues.Add(item.Value.ToString());
+                    }
+                    await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
+                    await device.UpdateProductionRate(deviceNames[whichExecution]);
+                }
+                else if (!job.All(x => x.Value == null)) // If there are missing values, we print information about it (if all of them are missing, we print information about it in Printing Information)
+                {
+                    Console.WriteLine($"Error while sending data from {deviceNames[whichExecution]} - at least one of the read values was null. Please check the physical device.");
+                }
+                whichExecution++;
+
+                /* if (!job.All(x => x.Value == null)) // Old Approach
+                {
+                    foreach (var item in job)
+                    {
+                        itemValues.Add(item.Value.ToString());
+                    }
+                    if (!job.Any(x => x.Value == null))
+                    {
+                        await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
+                        await device.UpdateProductionRate(deviceNames[whichExecution]);
+                    }
+                }
+                */
+            }
+            await Task.Delay(telemetryDelay); // Default wait time: 10 seconds, with the config file we can push it up to 5 seconds
+            #endregion
         }
-        await Task.Delay(telemetryDelay);
         #endregion
     }
+    else
+    {
+        #region OPC Agent
+        while (true)
+        {
+            List<OpcReadNode[]> commandList = new List<OpcReadNode[]>();
+
+            // We get Device parameters from the server for each Device in the config file
+            #region Reading Devices
+            deviceNames.Clear();
+            foreach (XmlNode iterator in config.SelectNodes("/DeviceConfig/Device"))
+            {
+                string name = iterator.SelectSingleNode("Name").InnerText;
+                deviceNames.Add(name);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    OpcReadNode[] commands = new OpcReadNode[] {
+                    new OpcReadNode("ns=2;s="+name+"/ProductionStatus", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/ProductionStatus"),
+                    new OpcReadNode("ns=2;s="+name+"/ProductionRate", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/ProductionRate"),
+                    new OpcReadNode("ns=2;s="+name+"/WorkorderId", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/WorkorderId"),
+                    new OpcReadNode("ns=2;s="+name+"/Temperature", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/Temperature"),
+                    new OpcReadNode("ns=2;s="+name+"/GoodCount", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/GoodCount"),
+                    new OpcReadNode("ns=2;s="+name+"/BadCount", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/BadCount"),
+                    new OpcReadNode("ns=2;s="+name+"/DeviceError", OpcAttribute.DisplayName),
+                    new OpcReadNode("ns=2;s="+name+"/DeviceError"),
+                    };
+
+                    commandList.Add(commands);
+                }
+            }
+            #endregion
+
+            #region Sending Telemetry
+            whichExecution = 0;
+            foreach (OpcReadNode[] command in commandList)
+            {
+                IEnumerable<OpcValue> job = client.ReadNodes(command);
+                List<String> itemValues = new List<string>();
+
+                if (!job.All(x => x.Value == null)) // We send telemetry of all values are present (the device gave 100% of the information)
+                {
+                    foreach (var item in job)
+                    {
+                        itemValues.Add(item.Value.ToString());
+                    }
+                    if (!job.Any(x => x.Value == null))
+                    {
+                        await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
+                        await device.UpdateProductionRate(deviceNames[whichExecution]);
+                    }
+                }
+                whichExecution++;
+
+                /* if (!job.All(x => x.Value == null)) // Old Approach
+                    {
+                        foreach (var item in job)
+                        {
+                            itemValues.Add(item.Value.ToString());
+                        }
+                        if (!job.Any(x => x.Value == null))
+                        {
+                            await device.UpdateReportedTwinAsync(deviceNames[whichExecution], itemValues);
+                            await device.UpdateProductionRate(deviceNames[whichExecution]);
+                        }
+                    }
+                    */
+            }
+            await Task.Delay(telemetryDelay); // Default wait time: 10 seconds, with the config file we can push it up to 5 seconds
+            #endregion
+        }
+        #endregion
+    }
+
 }
 #endregion
