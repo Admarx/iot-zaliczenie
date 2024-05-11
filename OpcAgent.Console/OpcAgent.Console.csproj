@@ -8,12 +8,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Devices" Version="1.39.1" />
     <PackageReference Include="Microsoft.Azure.Devices.Client" Version="1.41.0" />
     <PackageReference Include="Opc.UaFx.Client" Version="2.29.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\OpcAgent.Device\OpcAgent.Device.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="DeviceConfig.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

@@ -3,9 +3,13 @@ using Opc.UaFx.Client;
 using System.Xml;
 using OpcAgent.Device;
 using Microsoft.Azure.Devices.Client;
+using Azure.Messaging.ServiceBus;
+using Newtonsoft.Json;
+using Microsoft.Azure.Devices;
+using System.IO;
 
 #region startup configs
-string filePath = Directory.GetParent(Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName).ToString() + "\\DeviceConfig.xml";
+string filePath = null;
 bool goodFile = false;
 int whichExecution = 0;
 Int32 telemetryDelay = 10000; // time in ms (10 seconds by default)
@@ -14,6 +18,12 @@ List<DeviceClient> deviceClients = new List<DeviceClient>();
 XmlDocument config = new XmlDocument();
 string connectionAddress = string.Empty;
 string deviceConnectionString = string.Empty;
+
+string serviceBusConnectionString = string.Empty;
+string emergencyStopQueueName = string.Empty;
+string lowerProductionQueueName = string.Empty;
+string registryManagerConnectionString = string.Empty;
+string azureDeviceName = string.Empty;
 #endregion 
 
 Console.WriteLine("Reading the config file");
@@ -21,14 +31,25 @@ Console.WriteLine("Reading the config file");
 #region reading config file
 while (!goodFile)
 {
-    try
+    Console.WriteLine("Insert the config file path relative to the program");
+    filePath = Console.ReadLine();
+    if (File.Exists(filePath))
     {
-        config.Load(filePath);
+        try
+        {
+            config.Load(filePath);
+        }
+        catch
+        {
+            config = null;
+            Console.WriteLine("Incorrect config file. Make sure the file exists and has a XML structure, and then press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
     }
-    catch
+    else
     {
-        config = null;
-        Console.WriteLine("Incorrect config file. Make sure the file exists and has a XML structure, and then press any key to retry.");
+        Console.WriteLine("Config file doesn't exist under this path. Press any key to retry.");
         Console.ReadKey();
         continue;
     }
@@ -38,7 +59,7 @@ while (!goodFile)
         connectionAddress = config.SelectSingleNode("/DeviceConfig/ConnectionAddress").InnerXml;
         if(string.IsNullOrEmpty(connectionAddress))
         {
-            Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Modify the file and press any key to retry.");
+            Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Insert the connection string into the <ConnectionAddress> element and press any key to retry.");
             Console.ReadKey();
             continue;
         }    
@@ -46,7 +67,7 @@ while (!goodFile)
     }
     catch
     {
-        Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Modify the file and press any key to retry.");
+        Console.WriteLine("Connection address to the OPC UA server was not found in the Config file. Modify the file by adding a <ConnectionAddress> element and press any key to retry.");
         Console.ReadKey();
         continue;
     }
@@ -56,14 +77,14 @@ while (!goodFile)
         deviceConnectionString = config.SelectSingleNode("/DeviceConfig/AzureConnectionString").InnerXml;
         if (string.IsNullOrEmpty(deviceConnectionString))
         {
-            Console.WriteLine("Azure device connection string was not found in the Config file. Modify the file and press any key to retry.");
+            Console.WriteLine("Azure Device connection string was not found in the Config file. Insert the connection string into the <AzureConnectionString> element and press any key to retry.");
             Console.ReadKey();
             continue;
         }
     }
     catch
     {
-        Console.WriteLine("Azure device connection string was not found in the Config file. Modify the file and press any key to retry.");
+        Console.WriteLine("Azure Device connection string was not found in the Config file. Modify the file by adding a <AzureConnectionString> element and press any key to retry.");
         Console.ReadKey();
         continue;
     }
@@ -71,7 +92,7 @@ while (!goodFile)
     try
     {
         string str_TelemetryDelay = config.SelectSingleNode("/DeviceConfig/TelemetryDelay").InnerXml;
-        if (string.IsNullOrEmpty(deviceConnectionString))
+        if (string.IsNullOrEmpty(str_TelemetryDelay))
         {
             Console.WriteLine("Telemetry Delay value was not found in the Config file. Default value (10 seconds) will be used instead.");
         }
@@ -99,9 +120,97 @@ while (!goodFile)
     {
         Console.WriteLine("Telemetry Delay value did not exist - default value (10 seconds) will be used instead.");
     }
+
+    try
+    {
+        serviceBusConnectionString = config.SelectSingleNode("/DeviceConfig/ServiceBusConnectionString").InnerXml;
+        if (string.IsNullOrEmpty(serviceBusConnectionString))
+        {
+            Console.WriteLine("Azure Service Bus connection string was not found in the Config file. Insert the connection string into the <ServiceBusConnectionString> element and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Azure Service Bus connection string was not found in the Config file. Modify the file by adding a <ServiceBusConnectionString> element and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
+    try
+    {
+        emergencyStopQueueName = config.SelectSingleNode("/DeviceConfig/EmergencyStopQueueName").InnerXml;
+        if (string.IsNullOrEmpty(emergencyStopQueueName))
+        {
+            Console.WriteLine("Azure Service Bus Queue for handling Emergency Stop was not found in the Config file. Insert the Bus Queue Name into the <EmergencyStopQueueName> element and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Azure Service Bus Queue for handling Emergency Stop was not found in the Config file. Modify the file by adding a <EmergencyStopQueueName> element and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
+    try
+    {
+        lowerProductionQueueName = config.SelectSingleNode("/DeviceConfig/LowerProductionRateQueueName").InnerXml;
+        if (string.IsNullOrEmpty(lowerProductionQueueName))
+        {
+            Console.WriteLine("Azure Service Bus Queue for handling Production Rate decrease was not found in the Config file. Insert the Bus Queue Name into the <LowerProductionRateQueueName> element and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Azure Service Bus Queue for handling Production Rate decrease was not found in the Config file. Modify the file by adding a <LowerProductionRateQueueName> element and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
+    try
+    {
+        azureDeviceName = config.SelectSingleNode("/DeviceConfig/AzureDeviceName").InnerXml;
+        if (string.IsNullOrEmpty(azureDeviceName))
+        {
+            Console.WriteLine("Azure Device Name was not found in the Config file. Insert the Azure Device Name into the <AzureDeviceName> element and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Azure Device Name was not found in the Config file. Modify the file by adding a <AzureDeviceName> element and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
+    try
+    {
+        registryManagerConnectionString = config.SelectSingleNode("/DeviceConfig/RegistryManagerConnectionString").InnerXml;
+        if (string.IsNullOrEmpty(registryManagerConnectionString))
+        {
+            Console.WriteLine("Azure Registry Manager conenction string was not found in the Config file. Insert the connection string into the <RegistryManagerConnectionString> element and press any key to retry.");
+            Console.ReadKey();
+            continue;
+        }
+    }
+    catch
+    {
+        Console.WriteLine("Azure Registry Manager conenction string was not found in the Config file. Modify the file by adding a <RegistryManagerConnectionString> element and press any key to retry.");
+        Console.ReadKey();
+        continue;
+    }
+
     goodFile = true;
 }
 #endregion
+
+Console.WriteLine("Config file has been successfully loaded");
 
 #region connection
 using (var client = new OpcClient(connectionAddress))
@@ -109,11 +218,29 @@ using (var client = new OpcClient(connectionAddress))
     client.Connect();
 
     #region before loop
-    using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, TransportType.Mqtt);
+    using var deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, Microsoft.Azure.Devices.Client.TransportType.Mqtt);
+    using var registryManager = RegistryManager.CreateFromConnectionString(registryManagerConnectionString);
     await deviceClient.OpenAsync();
-    var device = new VirtualDevice(deviceClient, client);
+    var device = new VirtualDevice(deviceClient, client, registryManager, azureDeviceName);
     await device.InitializeHandlers();
     await device.ClearReportedTwinAsync();
+    #endregion
+
+    #region servicebus setup
+    await using ServiceBusClient serviceBus_client = new ServiceBusClient(serviceBusConnectionString);
+    await using ServiceBusProcessor emergencyStop_processor = serviceBus_client.CreateProcessor(emergencyStopQueueName);
+    //await using ServiceBusClient serviceBus_client2 = new ServiceBusClient(serviceBusConnectionString);
+    await using ServiceBusProcessor lowerProduction_processor = serviceBus_client.CreateProcessor(lowerProductionQueueName);
+
+    emergencyStop_processor.ProcessMessageAsync += device.EmergencyStop_ProcessMessageAsync;
+    emergencyStop_processor.ProcessErrorAsync += device.Message_ProcessError;
+
+    lowerProduction_processor.ProcessMessageAsync += device.LowerProduction_ProcessMessageAsync;
+    lowerProduction_processor.ProcessErrorAsync += device.Message_ProcessError;
+
+    await emergencyStop_processor.StartProcessingAsync();
+    await lowerProduction_processor.StartProcessingAsync();
+
     #endregion
 
     while (config != null)
@@ -177,7 +304,6 @@ using (var client = new OpcClient(connectionAddress))
 
         #region sending test
         whichExecution = 0;
-
         foreach (OpcReadNode[] command in commandList)
         {
             IEnumerable<OpcValue> job = client.ReadNodes(command);

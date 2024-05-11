@@ -1,6 +1,11 @@
 <DeviceConfig>
 	<ConnectionAddress>opc.tcp://localhost:4840/</ConnectionAddress>
 	<AzureConnectionString>HostName=IOTHUBAK2024.azure-devices.net;DeviceId=AKDeviceProjekt;SharedAccessKey=nC6TZc+dPAR/X5gLyU3U4wvMv77tvGUQHQ6q832K/QE=</AzureConnectionString>
+	<AzureDeviceName>AKDeviceProjekt</AzureDeviceName>
+	<ServiceBusConnectionString>Endpoint=sb://servicebusprojektak2024.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=17ex+xaqNWsjLD+w+5bB8WGIYyY2fUdB3+ASbIG8/dg=</ServiceBusConnectionString>
+	<RegistryManagerConnectionString>HostName=IOTHUBAK2024.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=2vxISIrxXf+rSggeuoL7k9UnPPPogv72vAIoTOT+xvk=</RegistryManagerConnectionString>
+	<EmergencyStopQueueName>deviceerrorsbus</EmergencyStopQueueName>
+	<LowerProductionRateQueueName>kpibus</LowerProductionRateQueueName>
 	<TelemetryDelay>15000</TelemetryDelay>
 	<Device>
 		<Name>Device 1</Name>

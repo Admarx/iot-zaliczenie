@@ -5,6 +5,10 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
+using Azure.Messaging.ServiceBus;
+using Microsoft.Win32;
+using Microsoft.Azure.Devices;
+using Message = Microsoft.Azure.Devices.Client.Message;
 
 namespace OpcAgent.Device
 {
@@ -12,11 +16,15 @@ namespace OpcAgent.Device
     {
         private readonly DeviceClient client;
         private OpcClient opcClient;
+        private RegistryManager registryManager;
+        private string azureDeviceName;
 
-        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient)
+        public VirtualDevice(DeviceClient deviceClient, OpcClient opcClient, RegistryManager registryManager, string azureDeviceName)
         {
             this.client = deviceClient;
             this.opcClient = opcClient;
+            this.registryManager = registryManager;
+            this.azureDeviceName = azureDeviceName;
         }
 
         #region Sending Messages
@@ -75,7 +83,7 @@ namespace OpcAgent.Device
         private async Task<MethodResponse> EmergencyStop(MethodRequest methodRequest, object userContext)
         {
             var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { deviceName = default(string) });
-            Console.WriteLine($"METHOD EXECUTED: {methodRequest.Name} FOR : {payload.deviceName}");
+            Console.WriteLine($"EMERGENCY STOP EXECUTED FOR : {payload.deviceName}");
             opcClient.CallMethod("ns=2;s=" + payload.deviceName, "ns=2;s=" + payload.deviceName + "/EmergencyStop");
 
             return new MethodResponse(0);
@@ -84,7 +92,7 @@ namespace OpcAgent.Device
         private async Task<MethodResponse> ResetErrorStatus(MethodRequest methodRequest, object userContext)
         {
             var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { deviceName = default(string) });
-            Console.WriteLine($"METHOD EXECUTED: {methodRequest.Name} FOR : {payload.deviceName}");
+            Console.WriteLine($"RESET ERROR STATUS EXECUTED FOR : {payload.deviceName}");
             opcClient.CallMethod("ns=2;s=" + payload.deviceName, "ns=2;s=" + payload.deviceName + "/ResetErrorStatus");
 
             return new MethodResponse(0);
@@ -130,11 +138,14 @@ namespace OpcAgent.Device
                 bool sendDeviceError = false; // our flag checking if there was a device Error change
 
                 var twin = await client.GetTwinAsync();
-                string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
-                JObject jobjectJSON = JObject.Parse(json);
+                string error_previousValue = null;
 
                 string error_PropertyName = deviceName.Replace(" ", "") + "_error_state";
-                string error_previousValue = (string)jobjectJSON["properties"]["reported"][error_PropertyName];
+                try
+                {
+                    error_previousValue = twin.Properties.Reported[error_PropertyName];
+                }
+                catch(ArgumentOutOfRangeException) { } // If value doesn't exist - do nothing
                 string rate_PropertyName = deviceName.Replace(" ", "") + "_production_rate";
                 var reportedProperties = new TwinCollection();
                 #endregion
@@ -156,11 +167,15 @@ namespace OpcAgent.Device
         public async Task UpdateProductionRate(string deviceName)
         {
             var twin = await client.GetTwinAsync();
-            string json = JsonConvert.SerializeObject(twin, Formatting.Indented);
-            JObject jobjectJSON = JObject.Parse(json);
 
             string desired_productionRateName = deviceName.Replace(" ", "") + "_production_rate";
-            string desired_productionRateValue = (string)jobjectJSON["properties"]["desired"][desired_productionRateName];
+            string desired_productionRateValue = null;
+
+            try
+            {
+                desired_productionRateValue = twin.Properties.Desired[desired_productionRateName];
+            }
+            catch (ArgumentOutOfRangeException) { } // If value doesn't exist - do nothing
 
             if (!string.IsNullOrEmpty(desired_productionRateValue))
             {
@@ -174,11 +189,63 @@ namespace OpcAgent.Device
 
         #endregion Device Twin
 
+        #region BusinessLogic
+        public async Task EmergencyStop_ProcessMessageAsync(ProcessMessageEventArgs arg)
+        {
+            string deviceName = arg.Message.MessageId;
+            string str_data = "{\"deviceName\":\"" + deviceName + "\"}";
+            byte[] byte_data = Encoding.ASCII.GetBytes(str_data);
+            MethodRequest methodRequest = new MethodRequest(JsonConvert.SerializeObject(str_data),byte_data);
+            await EmergencyStop(methodRequest, client);
+
+            await arg.CompleteMessageAsync(arg.Message);
+        }
+
+        public async Task LowerProduction_ProcessMessageAsync(ProcessMessageEventArgs arg)
+        {
+            string deviceName = arg.Message.MessageId;
+            var twin = await registryManager.GetTwinAsync(azureDeviceName);
+            string rate_PropertyName = deviceName.Replace(" ", "") + "_production_rate";
+            string rate_previousValue = null;
+
+            try
+            {
+                rate_previousValue = twin.Properties.Reported[rate_PropertyName];
+            }
+            catch (ArgumentOutOfRangeException) { } // If value doesn't exist - do nothing
+            if(!string.IsNullOrEmpty(rate_previousValue))
+            {
+                int int_previousRate;
+                if (int.TryParse(rate_previousValue, out int_previousRate))
+                {
+                    if(int_previousRate - 10 > 0)
+                    {
+                        int_previousRate -= 10;
+                    }
+                    else
+                    {
+                        int_previousRate = 0;
+                    }
+                    twin.Properties.Desired[rate_PropertyName] = int_previousRate;
+                    await registryManager.UpdateTwinAsync(twin.DeviceId, twin, twin.ETag);
+                }
+            }
+            await arg.CompleteMessageAsync(arg.Message);
+        }
+
+        public Task Message_ProcessError(ProcessErrorEventArgs arg)
+        {
+            Console.WriteLine("SERVICE BUS ENCOUNTERED AN ERROR. PLEASE SEE ATTACHED MESSAGE: "+arg.Exception.Message);
+            return Task.CompletedTask;
+        }
+        #endregion
+
         public async Task InitializeHandlers()
         {
             await client.SetMethodHandlerAsync("EmergencyStop", EmergencyStop, client);
             await client.SetMethodHandlerAsync("ResetErrorStatus", ResetErrorStatus, client);
             await client.SetMethodDefaultHandlerAsync(DefaultServiceHandler, client);
         }
+
     }
 }
