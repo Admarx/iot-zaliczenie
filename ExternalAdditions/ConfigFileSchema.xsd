@@ -1,0 +1,67 @@
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+	<xs:element name="DeviceConfig">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element type="xs:string" name="ConnectionAddress">
+					<xs:annotation>
+						<xs:documentation>Connection Address to the OPC UA Server</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:string" name="AzureConnectionString">
+					<xs:annotation>
+						<xs:documentation>Connection String to the Azure IoT Hub</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:string" name="AzureDeviceName">
+					<xs:annotation>
+						<xs:documentation>Name of the Azure Device used for telemetry</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:string" name="ServiceBusConnectionString">
+					<xs:annotation>
+						<xs:documentation>Connection String to the Azure Service Bus</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:string" name="RegistryManagerConnectionString">
+					<xs:annotation>
+						<xs:documentation>Connection String to the Azure IoT Hub Registry Manager</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:string" name="EmergencyStopQueueName">
+					<xs:annotation>
+						<xs:documentation>Name of the Service Bus Queue sending information about Emergency Stop triggers</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:string" name="LowerProductionRateQueueName">
+					<xs:annotation>
+						<xs:documentation>Name of the Service Bus Queue sending information about lowering Production Rate</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element type="xs:short" name="TelemetryDelay" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Telemetry Delay (in miliseconds)</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element name="Device" maxOccurs="unbounded">
+					<xs:annotation>
+						<xs:documentation>List of Devices that the Agent should connect to through the OPC UA Server</xs:documentation>
+					</xs:annotation>
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element type="xs:string" name="Name">
+								<xs:annotation>
+									<xs:documentation>Name of a Device that the Agent should connect to through the OPC UA Server</xs:documentation>
+								</xs:annotation>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+			</xs:sequence>
+			<xs:attribute type="xs:string" name="debug" minoccurs="0">
+				<xs:annotation>
+					<xs:documentation>Debug Flag ("true" = print all information, "false" = print only selected information)</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

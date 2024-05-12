@@ -1,0 +1,65 @@
+/* Data calculation */
+/* 1. Production KPIs */
+
+SELECT
+    deviceName, 
+    ROUND(SUM(CAST(goodCount AS float)) / SUM((CAST(goodCount AS float)) + CAST(badCount AS float) ) * 100,2) AS "KPI",
+    System.TimeStamp() as "Datetime of snapshot"
+INTO [kpi]
+FROM
+    [IOTHUBAK2024] TIMESTAMP BY EventEnqueuedUtcTime
+GROUP BY deviceName, TumblingWindow(minute, 5)
+
+/* 2. Temperatures */
+
+SELECT
+    deviceName,
+    MIN(CAST(REPLACE(temperature,',','.') AS float)) AS "Minimum temperature",
+    AVG(CAST(REPLACE(temperature,',','.') AS float)) AS "Average temperature",
+    MAX(CAST(REPLACE(temperature,',','.') AS float)) AS "Maximum temperature",
+    System.TimeStamp() as "Datetime of snapshot"
+INTO
+    [temperatures]
+FROM
+    [IOTHUBAK2024] TIMESTAMP BY EventEnqueuedUtcTime
+GROUP BY deviceName, HoppingWindow(minute, 5, 1)
+
+/* 3. device Errors */
+
+SELECT deviceName, 
+COUNT(*) AS Count, 
+System.Timestamp() as "Datetime of snapshot"
+INTO [deviceerrors]
+FROM [IOTHUBAK2024] TIMESTAMP BY EventEnqueuedUtcTime
+WHERE deviceErrors IS NOT NULL AND deviceErrors != '0'
+GROUP BY deviceName, SlidingWindow(second,60)
+HAVING COUNT(deviceErrors) > 3
+
+/* Business Logic */
+/* 1. Emergency Stop - COUNT(deviceErrors) is unneccesary, but I wanted to keep it in the data packet */
+
+SELECT deviceName , COUNT(deviceErrors) 
+INTO [deviceErrorsBus]
+FROM [IOTHUBAK2024] TIMESTAMP BY EventEnqueuedUtcTime
+WHERE deviceErrors IS NOT NULL AND deviceErrors != '0'
+GROUP BY deviceName, SlidingWindow(second,60)
+HAVING COUNT(deviceErrors) > 3
+
+/* 2. Drop of productionRate - KPI is unneccessary, but I wanted to keep it in the data packet*/
+
+SELECT
+    deviceName, ROUND(SUM(CAST(goodCount AS float)) / SUM((CAST(goodCount AS float)) + CAST(badCount AS float) ) * 100,2) AS KPI
+INTO 
+    [kpibus]
+FROM
+    [IOTHUBAK2024] TIMESTAMP BY EventEnqueuedUtcTime
+GROUP BY deviceName, TumblingWindow(minute, 5)
+HAVING KPI < 90
+
+/* 3. Send Mail to inform about Device Errors */
+
+SELECT deviceName
+INTO [sendMailBus]
+FROM [IOTHUBAK2024] TIMESTAMP BY EventEnqueuedUtcTime
+WHERE deviceErrors IS NOT NULL AND deviceErrors != '0'
+GROUP BY deviceName, SlidingWindow(second,1)
